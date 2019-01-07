@@ -1,7 +1,7 @@
 
 # Proyecto en iOS (10 puntos)
 
-El proyecto consistirá en hacer una aplicación para iOS que gestione el videoclub que se ha implementado en sesiones anteriores. Partiremos del código de la aplicación `Pelis` que hicimos en la sesión anterior.
+El proyecto consistirá en hacer una aplicación para iOS que gestione el videoclub que se ha implementado en sesiones anteriores. Partiremos del código de la aplicación `Pelis` que hicimos en la sesión anterior. 
 
 ## Listado
 
