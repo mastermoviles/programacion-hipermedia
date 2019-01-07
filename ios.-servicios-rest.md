@@ -1,418 +1,361 @@
+# Parsing y servicios REST en iOS
+
+## Parsing en iOS
+
+En la primera parte de esta sesión veremos cómo parsear la información recibida de un servidor, tanto en JSON como en XML.
+
+### Parsing de JSON
+
+El parsing de JSON no se incorporó al SDK de iOS hasta la versión 5.0. Anteriormente contábamos con diferentes librerías que podíamos incluir para realizar esta tarea, como  (<a href="https://github.com/johnezang/JSONKit">*JSONKit*</a>) o (<a href="https://github.com/stig/json-framework/">*JSON-framework* </a>). Sin embargo, actualmente podemos trabajar con JSON directamente con las clases de Cocoa Touch sin necesidad de incluir ninguna librería adicional.
+
+Para esto simplemente necesitaremos la clase `JSONSerialization`. A partir de ella obtendremos el contenido del JSON en una jerarquía de objetos. El método `jsonObject` de la clase `JSONSerialization` nos devolverá un diccionario o un array según si el elemento principal del JSON es un objeto o una lista, respectivamente.
+
+<!--- https://developer.apple.com/swift/blog/?id=37 -->
 
 
-<!-- ************************************************************************-->
-# Acceso a servicios REST
+<!--let response = try JSONSerialization.jsonObject(with: data, options:JSONSerialization.ReadingOptions(rawValue:0)) as? [String: Any]-->
 
-Cuando las aplicaciones móviles se conectan a un servidor web, normalmente no buscan obtener un documento web (como en el caso de los navegadores, que normalmente solicitarán documentos HTML), sino que lo que hacen es acceder a servicios. Estos servicios nos pueden servir para realizar alguna operación en el servidor, o para obtener información en un formato que nuestra aplicación sea capaz de entender y de procesar. Un servicio consiste en una interfaz que nos da acceso a ciertas funcionalidades. Al realizarse el acceso a estos servicios mediante protocolos web, como HTTP, hablamos de servicios web.
+```swift
+let data: Data // Contenido JSON obtenido de la red, por ejemplo
+do {
+    let json = try JSONSerialization.jsonObject(with: data, options: [])
+   // Hacer algo con la variable json
+} catch {
+    print (error.localizedDescription)
+}
+```
 
-Existen diferentes tipos de servicios web. Uno de los principales tipos de servicios web son los servicios SOAP. Se trata de un estándar XML que nos permite crear servicios con un alto grado de operabilidad, dado que la forma de consumirlos será idéntica, independientemente de la plataforma en la que estén implementados. Además, al definirse de forma estándar existen herramientas que nos permiten integrarlos casi de forma automática en cualquier lenguaje y plataforma. Sin embargo, tienen el inconveniente de que para conseguir dicha interoperabilidad y facilidad de integración necesitan definir un XML demasiado pesado y rígido, lo cual resulta poco adecuado para dispositivos móviles y para la web en general. Estos servicios se utilizan comúnmente para integración de aplicaciones, y en el ámbito de grandes aplicaciones transaccionales.
+A veces la información JSON está en forma de diccionario (el elemento principal del JSON es un objeto), y otras organizada como un array (el elemento principal es una lista).  Vamos a ver un ejemplo cuando el elemento principal es un objeto:
 
-Para la web y dispositivos móviles se ha impuesto otro estilo para crear servicios web. Se trata del estilo REST, que acerca los servicios web a la web. Se trata de servicios fuertemente vinculados a los protocolos web (HTTP) sobre los que se invocan, en los que tendremos una gran flexibilidad a la hora de elegir el formato con el que queremos intercambiar la información. Vamos a centrarnos en estudiar este estilo REST.
+```json
+{
+  "someKey": 42.0,
+  "anotherKey": {
+    "someNestedKey": true
+  }
+}
+```
+
+En este caso, nuestro código podría ser el siguiente:
+
+```swift
+if let dictionary = json as? [String: Any] {
+  if let number = dictionary["someKey"] as? Double {
+    // Procesamos el valor number
+  }
+  if let nestedDictionary = dictionary["anotherKey"] as? [String: Any] {
+    // Accedemos al diccionario anotherKey para hacer algo con sus valores
+  }
+  for (key, value) in dictionary {
+		// Si quisiéramos acceder a todos los pares clave/valor del diccionario raíz
+  }
+}
+```
+
+Si en su lugar el elemento principal del JSON fuera un array:
+
+```json
+[
+  "hello", 3, true
+]
+```
+
+Podríamos procesarlo del siguiente modo:
+
+```swift
+if let array = json as? [Any] {
+	for object in array {
+		// Acceder a todos los objetos del array
+	}
+}
+```
+
+El objeto `JSONSerialization` también nos permite realizar la transformación en el sentido inverso, permitiendo transformar una jerarquía de objetos `Array` y `Dictionary` en una representación JSON. Para eso contaremos con el método `jsonObject`:
+
+```swift
+var dict = ["someKey": 42.0, "anotherKey": "prueba"] as [String :Any]
+
+do {
+        let data = try JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted)
+        if let str = String(data: data, encoding: .utf8) { // Para imprimirlo por pantalla
+            print (str)
+        }
+
+} catch {
+        print (error.localizedDescription)
+}
+```
 
 
+#### Parsing JSON con MVC
 
+Hemos visto la forma básica de serializar o deserializar datos en JSON. Sin embargo, nuestras apps suelen seguir el patrón de diseño MVC, por lo que normalmente es más limpio y conveniente convertir directamente los objetos JSON al formato de nuestro modelo. Vamos a ver un ejemplo de cómo se haría la deserialización. Dado el siguiente modelo:
 
-<!-- ************************************************************************-->
-## Fundamentos de REST
+```swift
+class Restaurant
+{
+  let name: String
+  let location: (latitude: Double, longitude: Double)
+  let meals: [String]
+}
+```
 
-El estilo REST (_Representational State Transfer_ o Transferencia de Estado Representacional) es una forma ligera de crear Servicios Web. El elemento principal en el que se basan estos servicios son las URLs. En líneas generales podemos decir que estos servicios consisten en URLs a las que podemos acceder, por ejemplo mediante protocolo HTTP, para obtener información o realizar alguna operación. El formato de la información que se intercambie con estas URLs lo decidirá el desarrollador del servicio. Este tipo de servicios acercan los Servicios Web al tipo de arquitectura de la _web_, siendo especialmente interesantes para su utilización en AJAX o la construcción de una API.
+Y el siguiente documento JSON:
 
-El término REST proviene de la tesis doctoral de Roy Fielding, publicada en el año 2000, y significa *_REpresentational State Transfer_*. REST es un conjunto de restricciones que, cuando son aplicadas al diseño de un sistema, crean un estilo arquitectónico de software. Dicho estilo arquitectónico se caracteriza por:
+```json
+{
+	"name": "Caffè Macs",
+	"coordinates": {
+		"lat": 37.330576,
+		"lng": -122.029739
+	},
+	"meals": ["breakfast", "lunch", "dinner"]
+}
+```
 
+podemos crear un constructor para nuestro modelo a partir de un diccionario:
 
-* Debe ser un sistema cliente-servidor
-* Tiene que ser sin estado, es decir, no hay necesidad de que los servicios guarden las sesiones de los usuarios (cada petición al servicio tiene que ser independiente de las demás)
-* Debe soportar un sistema de _cachés_: la infraestructura de la red debería soportar _caché_ en diferentes niveles.
-* Debe ser un sistema uniformemente accesible (con una interfaz uniforme): cada recurso debe tener una única dirección y un punto válido de acceso. Los recursos se identifican con URIs, lo cual proporciona un espacio de direccionamiento global para el descubrimiento del servicio y de los recursos.
-* Tiene que ser un sistema por capas: por lo tanto debe soportar escalabilidad.
-* Debe utilizar mensajes auto-descriptivos: los recursos se desacoplan de su representación de forma que puedan ser accedidos en una variedad de formatos, como por ejemplo XML, JSON, HTML, texto plano, PDF, JPEG, etc.
+```swift
+init?(json: [String: Any]) {
 
+    guard let name = json["name"] as? String,
+        let coordinatesJSON = json["coordinates"] as? [String: Double],
+        let latitude = coordinatesJSON["lat"],
+        let longitude = coordinatesJSON["lng"],
+        let mealsJSON = json["meals"] as? [String]
+    else {
+            return nil
+    }
 
-Estas restricciones no dictan qué tipo de tecnología utilizar; solamente definen cómo se transfieren los datos entre componentes y qué beneficios se obtienen siguiendo estas restricciones. Por lo tanto, un sistema RESTful puede implementarse en cualquier arquitectura de la red disponible. Y lo que es más importante, no es necesario "inventar" nuevas tecnologías o protocolos de red: podemos utilizar las infraestructuras de red existentes, tales como la Web, para crear arquitecturas RESTful.
+    self.name = name
+    self.location = (latitude, longitude)
+    self.meals = mealsJSON
+}
+```
 
+Y la llamada a nuestro constructor sería:
 
-Antes de que las restricciones REST fuesen formalizadas, ya disponíamos de un ejemplo de un sistema RESTful: la Web (estática). Por ejemplo, la infraestructura de red existente proporciona sistemas de _caché_, conexión sin estado, y enlaces únicos a los recursos, en donde los recursos son todos los documentos disponibles en cada sitio web y las representaciones de dichos recursos son conjuntos de ficheros "legibles" por navegadores web (por ejemplo, ficheros HTML). Por lo tanto, la web estática es un sistema construido sobre un estilo arquitectónico REST.
+```swift
+let data: Data // Contenido JSON obtenido de la red, por ejemplo
+if let jsonData = try? JSONSerialization.jsonObject(with: data, options: []) as! [String:Any] {
+    let r = Restaurant(json:jsonData)
+}
+```
 
+Puedes encontrar más ejemplos de cómo trabajar con JSON en <a href="https://developer.apple.com/swift/blog/?id=37">este enlace de Apple</a>.
 
-A continuación analizaremos las abstracciones que constituyen un sistema RESTful: recursos, representaciones, URIs, y los tipos de peticiones HTTP que constituyen la interfaz uniforme utilizada en las transferencias cliente/servidor
+#### Parsing JSON con métodos Codable
 
+<!--- https://hackernoon.com/everything-about-codable-in-swift-4-97d0e18a2999 --->
 
+Swift4 permite serializar clases, registros (_struct_) o tipos enumerados (_enum_) para leer o escribir en JSON. Para codificar o decodificar un tipo personalizado podemos usar la opción `Encodable`, `Decodable`o `Codable`, que permiten tanto codificación como decodificación JSON como puede verse en el siguiente ejemplo:
 
-<!-- ************************************************************************-->
-## Recursos
+```swift
+struct Restaurant: Codable
+{
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let meals: [String]
+}
 
-Un recurso REST es cualquier cosa que sea direccionable a través de la Web. Por direccionable nos refererimos a recursos que puedan ser accedidos y transferidos entre clientes y servidores. Por lo tanto, un recurso es una correspondencia lógica y temporal con un concepto en el dominio del problema para el cual estamos implementando una solución.
+// Ejemplo codificación
 
-Algunos ejemplos de recursos REST son:
+let restaurant = Restaurant(name: "Hibiscus", latitude: 10, longitude: 10, meals: ["Mediterranean", "Arroces"])
+let encodedData = try? JSONEncoder().encode(restaurant)
 
-* Una noticia de un periódico.
-* La temperatura de Alicante a las 4:00pm.
-* Un valor de IVA almacenado en una base de datos.
-* Una lista con el historial de las revisiones de código en un sistema CVS.
-* Un estudiante en alguna aula de alguna universidad.
-* El resultado de una búsqueda de un ítem particular en Google.
+// Ejemplo decodificación recibiendo un restaurante en JSON desde servidor en la variable data
 
-Aun cuando el mapeado de un recurso es único, diferentes peticiones a un recurso pueden devolver la misma representación binaria almacenada en el servidor. Por ejemplo, consideremos un recurso en el contexto de un sistema de publicaciones. En este caso, una petición de la "última revisión publicada" y la petición de "la revisión número 12" en algún momento de tiempo pueden devolver la misma representación del recurso: cuando la última revisión sea efectivamente la 12. Por lo tanto, cuando la última revisión publicada se incremente a la versión 13, una petición a la última revisión devolverá la versión 13, y una petición de la revisión 12, continuará devolviendo la versión 12. En definitiva: cada uno de los recursos puede ser accedido directamente y de forma independiente, pero diferentes peticiones podrían "apuntar" al mismo dato.
+if let jsonData = jsonString.data(using: .utf8) {
+    let restaurant = try? JSONDecoder().decode(Restaurant.self, from: jsonData)
+}
+```
 
+Aunque esto suele ser suficiente para la mayoría de casos, a veces podemos querer omitir algunas variables en el proceso de serialización, o poner nombres a nuestras variables que no coinciden exactamente con los del JSON. Para resolver estas dos cuestiones, swift introdujo las `CodingKeys` que podemos ver en el siguiente ejemplo:
 
-Debido a que estamos utilizando HTTP para comunicarnos, podemos transferir cualquier tipo de información que pueda transportarse entre clientes y servidores. Por ejemplo, si realizamos una petición de un fichero de texto de la CNN, nuestro navegador mostrará un fichero de texto. Si solicitamos una película flash a YouTube, nuestro navegador recibirá una película flash. En ambos casos, los datos son transferidos sobre TCP/IP y el navegador conoce cómo interpretar los _streams_ binarios debido a la cabecera de respuesta del protocolo HTTP _Content-Type_. Por lo tanto, en un sistema RESTful, la representación de un recurso depende del tipo deseado por el cliente (tipo MIME), el cual está especificado en la petición del protocolo de comunicaciones.
+```swift
+struct Photo: Codable
+{
+    
+    // Esta propiedad no se incluye en CodingKeys, por lo que no se codificará o decodificará
+    var format: String = "png"
+    
+    // Propiedades a codificar/decodificar junto con sus nombres alternativos (en el caso de title y url, que en JSON vendría como name y link)
+    enum CodingKeys: String, CodingKey
+    {
+        case title = "name"
+        case url = "link"
+        case isSample
+        case metaData
+        case type
+        case size
+    }
+}
+```
 
+Puedes encontrar más información sobre `Codable` en [este enlace](https://hackernoon.com/everything-about-codable-in-swift-4-97d0e18a2999).
 
+### Parsing de XML
 
-<!-- ************************************************************************-->
-## Representación
-
-La representación de los recursos es lo que se envía entre los servidores y clientes. Una representación muestra el estado del dato real almacenado en algún dispositivo de almacenamiento en el momento de la petición. En términos generales, es un _stream_ binario, juntamente con los metadatos que describen cómo dicho _stream_ debe ser consumido por el cliente y/o servidor (los metadatos también pueden contener información extra sobre el recurso, como por ejemplo información de validación y encriptación, o código extra para ser ejecutado dinámicamente).
-
-Los clientes que solicitan un recurso pueden indicar el tipo de representación del mismo. Por lo tanto, una representación puede tener varias formas, como por ejemplo, una imagen, un texto, un fichero XML o un fichero JSON, pero tienen que estar disponibles en la misma URL.
-
-Para respuestas generadas para humanos a través de un navegador, una representación típica tiene la forma de página HTML. Para respuestas automáticas de otros servicios web, la legibilidad no es importante y puede utilizarse una representación mucho más eficiente como por ejemplo XML o JSON.
-
-El lenguaje para el intercambio de información con el servicio queda a elección del desarrollador. A continuación mostramos algunos formatos comunes que podemos utilizar para intercambiar esta información:
+En el SDK de iOS contamos con la clase `XMLParser` para analizar XML. Con esta librería el análisis se realiza de forma parecida a los parsers SAX de Java. Este es el parser principal incluido en el SDK, aunque también contamos dentro del SDK con `libxml2`, escrito en C, que incluye tanto un parser SAX como DOM. Además encontramos otras librerías que podemos incluir en nuestro proyecto como parsers DOM de XML:
 
 <table>
-<tr>
-<th>Formato</th>
-<th>Tipo MIME</th>
-</tr>
-<tr>
-<td>Texto plano</td>
-<td>`text/plain`</td>
-</tr>
-<tr>
-<td>HTML</td>
-<td>`text/html`</td>
-</tr>
-<tr>
-<td>XML</td>
-<td>`application/xml`</td>
-</tr>
-<tr>
-<td>JSON</td>
-<td>`application/json`</td>
-</tr>
+		<tr><th>Parser</th><th>URL</th><th></th><th></th></tr>
+		<tr><td>TBXML</td><td colspan="3"><a href="http://www.tbxml.co.uk/">http://www.tbxml.co.uk/</a></td></tr>
+		<tr><td>TouchXML</td><td colspan="3"><a href="https://github.com/TouchCode/TouchXML">https://github.com/TouchCode/TouchXML</a></td></tr>
+		<tr><td>KissXML</td><td colspan="3"><a href="http://code.google.com/p/kissxml">http://code.google.com/p/kissxml</a></td></tr>
+		<tr><td>TinyXML</td><td colspan="3"><a href="http://www.grinninglizard.com/tinyxml/">http://www.grinninglizard.com/tinyxml/</a></td></tr>
+		<tr><td>GDataXML</td><td colspan="3"><a href="http://code.google.com/p/gdata-objectivec-client">http://code.google.com/p/gdata-objectivec-client</a></td></tr>
 </table>
 
-De especial interés es el formato JSON. Se trata de un lenguaje ligero de intercambio
-de información, que puede utilizarse en lugar de XML (que resulta considerablemente
-más pesado) para aplicaciones AJAX. De hecho, en Javascript puede leerse este tipo de
-formato simplemente utilizando el método `eval()`.
+Nos vamos a centrar en el estudio de `XMLParser` por ser el parser principal incluido en la API de Cocoa Touch.
 
+Para implementar un parser con esta librería deberemos crear una clase que adopte el protocolo `XMLParserDelegate`. Este define, entre otros, los siguientes métodos:
 
+```swift
+func parser(_ parser: XMLParser,
+    didStartElement: String,
+       namespaceURI: String?,
+      qualifiedName: String?,
+         attributes: [String : String] = [:])
 
-<!-- ************************************************************************-->
-## URI
+func parser(_ parser: XMLParser,
+     didEndElement: String,
+      namespaceURI: String?,
+     qualifiedName: String?)
 
-Una URI, o *Uniform Resource Identifier*, en un servicio web RESTful es un hiper-enlace a un recurso, y es la única forma de intercambiar representaciones entre clientes y servidores. Un servicio web RESTful expone un conjunto de recursos que identifican los objetivos de la interacción con sus clientes.
+func parser(_ parser: XMLParser,
+   foundCharacters: String)
+```
 
+Podemos observar que nos informa de tres tipos de eventos: `didStartElement`, `didEndElement` y `foundCharacters`. El análisis del XML será secuencial, es decir, el parser irá leyendo el documento y nos irá notificando los elementos que encuentre. Cuando se abra una etiqueta, llamará al método `didStartElement` de nuestro parser, cuando encuentre texto llamará a `foundCharacters`, y cuando se cierra la etiqueta llamará a `didEndElement`. Será responsabilidad nuestra implementar de forma correcta estos tres eventos, y guardar la información de estado que necesitemos durante el análisis.
 
-El conjunto de restricciones REST no impone que las URIs deban ser hiper-enlaces. Simplemente hablamos de hiper-enlaces porque estamos utilizando la Web para crear servicios web. Si estuviésemos utilizando un conjunto diferente de tecnologías soportadas, una URI RESTful podría ser algo completamente diferente. Sin embargo, la idea de direccionabilidad debe permanecer.
-
-
-En un sistema REST la URI no cambia a lo largo del tiempo, ya que la implementación de la arquitectura es la que gestiona los servicios, localiza los recursos, negocia las representaciones, y envía respuestas con los recursos solicitados. Y lo que es más importante, si hubiese un cambio en la estructura del dispositivo de almacenamiento en el lado del servidor (por ejemplo, un cambio de servidores de bases de datos), nuestras URIs seguirán siendo las mismas y serán válidas mientras el servicio web siga estando "en marcha" o el contexto del recurso no cambie.
-
-
-Sin las restricciones REST, los recursos se acceden por su localización: las direcciones web típicas son URIs fijas. Si por ejemplo renombramos un fichero en el servidor, la URI será diferente; si movemos el fichero a otro directorio, la URI también será diferente.
-
-
-Por ejemplo, si en nuestra aplicación tenemos información de cursos, podríamos acceder a la lista de cursos disponibles mediante una URL como la siguiente:
-
-<a href="http://jtech.ua.es/resources/cursos">http://jtech.ua.es/resources/cursos</a>
-
-Esto nos devolverá la lista de cursos en el formato que el desarrollador del servicio haya decidido. Hay que destacar por lo tanto que en este caso debe haber un entendimiento entre el consumidor y el productor del servicio, de forma que el primero comprenda el lenguaje utilizado por el segundo.
-
-Esta URL nos podría devolver un documento como el siguiente:
+Por ejemplo, imaginemos un documento XML sencillo como el siguiente:
 
 ```xml
-<?xml version="1.0"?>
-<j:Cursos xmlns:j="http://www.jtech.ua.es"
-         xmlns:xlink="http://www.w3.org/1999/xlink">
-  <Curso id="1"
-         xlink:href="http://jtech.ua.es/resources/cursos/1"/>
-  <Curso id="2"
-         xlink:href="http://jtech.ua.es/resources/cursos/2"/>
-  <Curso id="4"
-         xlink:href="http://jtech.ua.es/resources/cursos/4"/>
-  <Curso id="6"
-         xlink:href="http://jtech.ua.es/resources/cursos/6"/>
-</j:Cursos>
+<![CDATA[<mensajes>
+    <mensaje usuario="pepe">Hola, ¿qué tal?</mensaje>
+    <mensaje usuario="ana">Fetén</mensaje>
+</mensajes>]]>
 ```
 
-En este documento se muestra la lista de cursos registrados en la aplicación, cada uno de ellos representado también por una URL. Accediendo a estas URLs podremos obtener información sobre cada curso concreto o bien modificarlo.
+Podemos analizarlo mediante un parser `XMLParser` como el siguiente:
+
+```swift
+
+// Modelo:
+class UAMensaje
+{
+    var usuario : String?
+    var texto: String?
+}
+
+// Código en nuestro controlador:
+
+    var listaMensajes = [Any]()
+    var currentMessage : UAMensaje?
+
+    func parserDidStartDocument(_ parser: XMLParser) { // Se invoca al comenzar el parsing
+    }
+
+    func parserDidEndDocument(_ parser: XMLParser) { // Se invoca cuando hemos terminado el parsing
+    }
+
+    func parser(_ parser: XMLParser,
+                didStartElement elementName: String,
+                namespaceURI: String?,
+                qualifiedName: String?,
+                attributes attributeDict: [String : String] = [:])
+    {
+        if elementName.lowercased() == "mensajes" {
+            // Ok, no hacer nada
+        }
+        else if elementName.lowercased() == "mensaje" {
+            self.currentMessage = UAMensaje()
+            self.currentMessage!.usuario = attributeDict["usuario"]
+        }
+        else { // Si no puede haber etiquetas distintas a mensaje o mensajes
+            parser.abortParsing()
+        }
+    }
+
+    func parser(_ parser: XMLParser,
+                didEndElement elementName: String,
+                namespaceURI: String?,
+                qualifiedName: String?)
+    {
+        if elementName.lowercased() == "mensaje" {
+            if let message = self.currentMessage {
+                self.listaMensajes.append(message)
+            }
+        }
+    }
+
+    func parser(_ parser: XMLParser,
+                foundCharacters characters: String)
+    {
+        // Quitamos espacios en blanco
+        let trimmedString = characters.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedString != "" {
+            self.currentMessage?.texto = trimmedString
+        }
+    }
+```
+
+Podemos observar que cada vez que encuentra una etiqueta de apertura obtenemos tanto la etiqueta como sus atributos. Cada vez que se abre un nuevo mensaje se van introduciendo en el objeto de tipo `UAMensaje` los datos que se encuentran en el XML, hasta encontrar la etiqueta de cierre (en nuestro caso el texto, aunque podríamos tener etiquetas anidadas).
+
+Para que se ejecute el _parser_ que hemos implementado mediante el delegado deberemos crear un objeto `XMLParser` y proporcionarle dicho delegado (en el siguiente ejemplo suponemos que nuestro objeto `self` hace de delegado). El parser se debe inicializar proporcionando el contenido XML a analizar (encapsulado en un objeto `Data`):
+
+```swift
+let parser = XMLParser(data:self.content)
+parser.delegate = self
+let result = parser.parse()
+```
+
+Tras inicializar el _parser_, lo ejecutamos llamando al método `parse`, que realizará el análisis de forma síncrona, y nos devolverá `true` si todo ha ido bien, o `false` si ha habido algún error al procesar la información. También devolverá `false` si durante el _parsing_ llamamos al método `parser.abortParsing()`.
 
 
+## Acceso a servicios REST desde iOS
 
+En iOS podemos acceder a servicios REST utilizando las clases para conectar con URLs vistas en anteriores sesiones. Por ejemplo, para hacer una consulta al servidor de OpenWeatherMap podríamos utilizar el siguiente código para iniciar la conexión (recordemos que este método de conexión es asíncrono):
 
-<!-- ************************************************************************-->
-## Uniformidad de las interfaces a través de peticiones HTTP
+```swift
+  let url = URL(string: "http://api.openweathermap.org/data/2.5/weather?q=Alicante,ES")!
+  let request = URLRequest(url:url)     
+  let session = URLSession(configuration:URLSessionConfiguration.default)
 
-Ya hemos introducido los conceptos de recursos y sus representaciones. Hemos dicho que los recursos son _mappings_ de los estados reales de las entidades que son intercambiados entre los clientes y servidores. También hemos dicho que las representaciones son negociadas entre los clientes y servidores a través del protocolo de comunicación en tiempo de ejecución (a través de HTTP). A continuación veremos con detalle lo que significa el intercambio de estas representaciones, y lo que implica para los clientes y servidores el realizar acciones sobre dichos recursos.
-
-
-El desarrollo de servicios web REST es similar al desarrollo de aplicaciones web. Sin embargo, la diferencia fundamental entre el desarrollo de aplicaciones web tradicionales y las más modernas es cómo pensamos sobre las acciones a realizar sobre nuestras abstracciones de datos. De forma más concreta, el desarrollo moderno está centrado en el concepto de *nombres* (intercambio de recursos); el desarrollo tradicional está centrado en el concepto de verbos (acciones remotas a realizar sobre los datos). Con la primera forma, estamos implementando un servicio web RESTful; con la segunda un servicio similar a una llamada a procedimiento remoto- RPC). Y lo que es más, un servicio RESTful modifica el estado de los datos a través de la representación de los recursos (por el contrario, una llamada a un servicio RPC, oculta la representación de los datos y en su lugar envía comandos para modificar el estado de los datos en el lado del servidor). Finalmente, en el desarrollo moderno de aplicaciones web limitamos la ambigüedad en el diseño y la implementación debido a que tenemos cuatro acciones específicas que podemos realizar sobre los recursos: _Create, Retrieve, Update, Delete (CRUD)_. Por otro lado, en el desarrollo tradicional de aplicaciones web, podemos tener otras acciones con nombres o implementaciones no estándar.
-
-
-A continuación mostramos la correspondencia entre las acciones CRUD sobre los datos y los métodos HTTP correspondientes:
-
-| Acción sobre los datos | Protocolo HTTP equivalente |
-| ---------------------- | -------------------------- |
-| CREATE                 | POST                       |
-| RETRIEVE               | GET                        |
-| UPDATE                 | PUT                        |
-| DELETE                 | DELETE                     |
-
-
-En su forma más simple, los servicios web RESTful son aplicaciones cliente-servidor a través de la red que manipulan el estado de los recursos. En este contexto, la manipulación de los recursos significa creación de recursos, recuperación, modificación y borrado. Sin embargo, los servicios web RESTful no están limitados solamente a estos cuatro conceptos básicos de manipulación de datos. Por el contrario, los servicios RESTful pueden ejecutar lógica en el lado del servidor, pero recordando que cada respuesta debe ser una representación del recurso del dominio en cuestión. Deberemos determinar qué operación HTTP se ajusta mejor a la manipulación que deseamos realizar sobre los datos. Mención especial merece el método PUT, ya que no se trata simplemente de una actualización de los datos, sino de establecer el estado del recurso, exista previamente o no. A continuación trataremos cada uno de estos métodos con más detalle.
-
-
-> Nota: Una interfaz uniforme centra la atención en los conceptos abstractos que hemos visto: recursos, representaciones y URIs. Por lo tanto, si consideramos todos estos conceptos en su conjunto, podemos describir el desarrollo RESTful en una frase: utilizamos URIs para conectar clientes y servidores para intercambiar recursos en forma de sus representaciones. O también: en una arquitectura con estilo REST, los clientes y servidores intercambian representaciones de los recursos utilizando un protocolo e interfaces estandarizados.
-
-
-
-
-
-
-<!-- ************************************************************************-->
-# Tipos de peticiones HTTP
-
-A continuación vamos a ver los cuatro tipos de peticiones HTTP con detalle, y veremos cómo se utiliza cada una de ellas para intercambiar representaciones para modificar el estado de los recursos.
-
-
-
-
-<!-- ************************************************************************-->
-## GET/RETRIEVE
-
-El método GET se utiliza para *RECUPERAR* recursos. Antes de indicar la mecánica de la peticion GET, vamos a determinar cuál es el recurso que vamos a manejar y el tipo de representación que vamos a utilizar. Para ello vamos a seguir un ejemplo de un servicio web que gestiona alumnos en una clase, con la URI: _http://restfuljava.com_. Para dicho servicio, asumiremos una representación como la siguiente:
-
-
-```xml
-<alumno>
-    <nombre>Esther</nombre>
-    <edad>10</edad>
-    <link>/alumnos/Jane</link>
-</alumno>
+  session.dataTask(with: request, completionHandler: { data, response, error in
+           // Se recibe la respuesta como se ha visto en el capítulo de red
+       }).resume() // En esta línea lanzamos la petición asíncrona
 ```
 
 
-Una lista de alumnos tendrá el siguiente aspecto:
+Podemos modificar los datos de la petición y de esta forma establecer todos los datos necesarios para la petición al servicio: método HTTP, mensaje a enviar (como XML o JSON), y cabeceras (para indicar el tipo de contenido enviado, o los tipos de representaciones que aceptamos). Por ejemplo:
 
-```xml
-<alumnos>
-  <alumno>
-    <nombre>Esther</nombre>
-    <edad>10</edad>
-    <link>/alumnos/Esther</link>
-  <alumno>
-  <alumno>
-    <nombre>Pedro</nombre>
-    <edad>11</edad>
-    <link>/alumnos/Pedro</link>
-  <alumno>
-</alumnos>
+```swift
+  let url = URL(string: "http://localhost/videoclub/api/v1/catalog")!
+  let datosPelicula = ... // Componer mensaje JSON con datos de la peli a crear
+  var request = URLRequest(url:url)
+
+  request.httpMethod = "POST"
+  request.httpBody = datosPelicula
+  request.setValue("application/json", forHTTPHeaderField: "Accept")
+  request.setValue("application/json", forHTTPHeaderField: "Content-Type")  
 ```
 
+Podemos ver que en la petición POST hemos establecido todos los datos necesarios. Por un lado su bloque de contenido, con los datos del recurso que queremos añadir en la representación que consideremos adecuada. En este caso suponemos que utilizamos XML como representación. En tal caso hay que avisar de que el contenido lo enviamos con este formato, mediante la cabecera `Content-Type`, y de que la respuesta también queremos obtenerla en XML, mediante la cabecera `Accept`.
 
-Una vez definida nuestra representación, asumimos que las URIs tienen la forma: _http://restfuljava.com/alumnos_ para acceder a la lista de alumnos, y _http://restfuljava.com/alumnos/{nombre}_ para acceder a un alumno específico con el identificador con el valor _nombre_.
+# Ejercicios de servicios REST en iOS
 
+## Weather app (2 puntos)
 
-Ahora hagamos peticiones sobre nuestro servicio. Por ejemplo, si queremos recuperar la información de una alumna con el nombre _Esther_, realizamos una petición a la URI: _http://restfuljava.com/alumnos/Esther_.
+En este ejercicio vamos a practicar el parsing de XML y JSON. Para ello haremos una aplicación que nos permita visualizar el tiempo de una ciudad accediendo a la API de <a href="http://openweathermap.org/api">Openweathermap</a>.
 
-Una representación de _Esther_ en el momento de la petición, puede ser ésta:
+Se proporciona una plantilla `Weather` que ya realiza la llamada asíncrona a la API. Según el usuario elija XML o JSON, la respuesta del servidor se recibirá en el formato correspondiente. Crea una nueva conexión y lánzala en el método `search`.
 
-```xml
-<alumno>
-   <nombre>Esther</nombre>
-   <edad>10</edad>
-   <link>/alumnos/Esther</link>
-</alumno>
-```
+Se pide parsear la respuesta en ambos formatos para poder mostrar la información en pantalla. Sólo se solicitan unos pocos datos, que son la temperatura actual, la humedad, velocidad del viento, el país, y la descripción (que es un mensaje, como por ejemplo _clear skies_).
 
-También podríamos acceder a una lista de estudiantes a través de la URI: y _http://restfuljava.com/alumnos_ y la respuesta del servicio sería algo similar a ésta (asumiendo que solamente hay dos alumnos):
+Hay que completar los métodos `parseXML` y `parseJSON` para mostrar la información correspondiente en los outlets del interfaz. Es recomendable comenzar con `parseJSON`, completando el método `init` de la clase `Weather`. Para parsear el XML hace falta añadir al final del `ViewController` los métodos `didStartElement`, `didEndElement` y `foundCharacters`.
 
-
-```xml
-<alumnos>
-  <alumno>
-    <nombre>Esther</nombre>
-    <edad>10</edad>
-    <link>/alumnos/Esther</link>
-  <alumno>
-  <alumno>
-    <nombre>Pedro</nombre>
-    <edad>11</edad>
-    <link>/alumnos/Pedro</link>
-  <alumno>
-</alumnos>
-```
-
-Echemos un vistazo a los detalles de la petición. Una petición para recuperar un recurso _Esther_ usa el método GET con la URI: _http://restfuljava.com/alumnos/Esther_. Un diagrama de secuencia de dicha petición sería como el que mostramos a continuación:
-
-
-![GET/RETRIEVE](images/web_acceso_rest/rest-get.jpg "Escenario de petición GET/RETRIEVE")
-
-<!--
-<img alt="Escenario de petición GET/RETRIEVE" src="images/web_acceso_rest/rest-get.jpg" width="584" content-width="11cm"/>
--->
-
-¿Qué está ocurriendo aquí?:
-
-* Un cliente realiza una petición HTTP con el método GET y Esther es el identificador del alumno.
-* El cliente establece la representación solicitada a través del campo de cabecera `Accept`.
-* El servidor web recibe e interpreta la petición GET como una acción RETRIEVE. En este momento, el servidor web cede el control al _framework_ RESTful para gestionar la petición. Remarquemos que los _frameworks_ RESTful no recuperan de forma automática los recursos, ése no es su trabajo. La función del _framework_ es facilitar la implementación de las restricciones REST. La lógica de negocio y la implementación del almacenamiento es el papel del código específico del dominio.
-* El programa del lado del servidor busca el recurso _Esther_. Encontrar el recurso podría significar buscarlo en una base de datos, un sistema de ficheros, o una llamada a otro servicio web.
-* Una vez que el programa encuentra a _Esther_, convierte el dato binario del recurso a la representación solicitada por el cliente.
-* Con la representación convertida a XML, el servidor envía de vuelta una respuesta HTTP con un código numérico de 200 (`Ok`) junto con la representación solicitada. Si hay algún error, el servidor HTTP devuelve el código numérico correspondiente, pero es el cliente el que debe tratar de forma adecuada el fallo. El fallo más común es que el recurso no exista, en cuyo caso se devolvería el código 404 (`Not Found`).
-
-
-Todos los mensajes entre el cliente y el servidor son llamadas del protocolo estándar HTTP. Para cada acción de recuperación, enviamos una petición GET y obtenemos una respuesta HTTP con la representación del recurso solicitada, o bien, si hay un fallo, el correspondiente código de error (por ejemplo, `404 Not Found` si un recurso no se encuentra; `500 Internal Server Error` si hay un problema con el código que procesa la petición en servidor).
-
-En las peticiones de recuperación de datos resulta recomendable también implementar un sistema de caché. Para hacer esto utilizaremos el código de respuesta `304 Not Modified` en caso de que los datos no hubiesen cambiado desde la última petición que realizamos (se podría pasar un parámetro con la fecha en la que obtuvimos la representación por última vez). De esta forma, si un cliente recibe ese código como respuesta, sabe que puede seguir trabajando con la representación de la que ya dispone, sin tener que descargar una nueva.
-
-Solicitar una representación para todos los alumnos funciona de forma similar.
-
-> Nota: El método HTTP GET solamente debería utilizarse para recuperar representaciones. Podríamos utilizar una petición GET para actualizar el estado de los datos en el servidor, pero no es recomendable. Una operación GET  debe ser segura e idempotente (para más información ver <a href="http://www.w3.org/DesingIssues/Axioms">http://www.w3.org/DesingIssues/Axioms</a>. Para que una petición sea *segura*, múltiples peticiones al mismo recurso no deben cambiar el estado de los datos en el servidor. Por ejemplo, supongamos una petición en el instante t1 para un recurso R devuelve R1; a continuación, una petición en el instante t2 para R devuelve R2; suponiendo que no hay más acciones de modificación entre t1 y t2, entonces R1 = R2 = R. Para que una petición sea *idempotente* tiene que ocurrir que múltiples llamadas a la misma acción dejan siempre el mismo estado en el recurso. Por ejemplo, múltiples llamadas para crear un recurso R en los instantes t1, t2, y t3, darían como resultado que el recurso R existe sólo como R, y que las llamadas en los instantes t2 y t3 son ignoradas.
-
-
-
-
-<!-- ************************************************************************-->
-## POST/CREATE
-
-El método POST se utiliza para *CREAR* recursos. Vamos a utilizar el método HTTP POST para crear un nuevo alumno. De nuevo, la URI para añadir un nuevo alumno a nuestra lista será: _http://restfuljava.com/alumnos_. El tipo de método para la petición lo determina el cliente.
-
-
-Asumamos que el alumno con nombre _Ricardo_ no existe en nuestra lista y queremos añadirlo. Nuestra nueva representación XML de _Ricardo_ es:
-
-
-```xml
-<alumno>
-   <nombre>Ricardo</nombre>
-   <edad>10</edad>
-   <link></link>
-</alumno>
-```
-
-El elemento _link_ forma parte de la representación, pero está vacío debido a que éste valor se genera en tiempo de ejecución y no es creado por el cliente cuando envía la petición POST. Esto es solamente una convención para nuestro ejemplo; sin embargo, los clientes que utilizan el servicio web pueden especificar la estructura de las URIs.
-
-En este caso, no mostraremos el escenario, pero los pasos que se siguen cuando se realiza la petición son los siguientes:
-
-* Un cliente realiza una petición HTTP a la URI _http://restfuljava.com/alumnos_, con el método HTTP POST.
-* La petición POST incluye una representación en forma de XML de _Ricardo_.
-* El servidor web recibe la petición y delega en el _framework_ REST para que la gestione; nuestro código dentro del _framework_ ejecuta los comandos adecuados para almacenar dicha representación (de nuevo, el dispositivo de almenamiento puede ser cualquiera).
-* Una vez que se ha completado el almacenamiento del nuevo recurso, se envía una respuesta de vuelta: si no ha habido ningún error, enviaremos el código 201 (`Created`); si se produce un fallo, enviaremos el código de error adecuado. Además, podemos devolver en la cabecera `Location` la URL que nos dará acceso al recurso recién creado.
-
-```plain
-Location: http://restfuljava.com/alumnos/Ricardo
-```
-
-Las peticiones POST no son idempotentes, por lo que si invocamos una misma llamada varias veces sobre un mismo recurso, el estado del recurso puede verse alterado en cada una de ellas. Por ejemplo, si ejecutamos varias veces la acción POST con los datos del ejemplo anterior, podríamos estar creando cada vez un nuevo alumno de nombre `Ricardo`, teniendo así varios alumnos con el mismo nombre y edad (pero asociados a IDs distintos, por ejemplo: `/Ricardo`, `/Ricardo1`, `/Ricardo2`, etc).
-
-
-
-
-<!-- ************************************************************************-->
-## PUT/UPDATE
-
-El método PUT se utiliza para *ACTUALIZAR* (modificar) recursos, o para crearlos si el recurso en la URI especificada no existiese previamente. Es decir, PUT se utiliza para establecer un determinado recurso, dada su URI, a la representación que proporcionemos, independientemente de que existiese o no. Para actualizar un recurso, primero necesitamos su representación en el cliente; en segundo lugar, en el lado del cliente actualizaremos el recurso con los nuevos valores deseados; y finalmente, actualizaremos el recurso mediente una petición PUT, adjuntando la representación correspondiente.
-
-
-Para nuestro ejemplo, omitiremos la petición GET para recuperar a _Esther_ del servicio web, ya que es el mismo que acabamos de indicar en la sección anterior. Supongamos que queremos modificar la edad, y cambiarla de 10 a 12. La nueva representación será:
-
-```xml
-<alumno>
-   <nombre>Esther</nombre>
-   <edad>12</edad>
-   <link>/alumnos/Esther</link>
-</alumno>
-```
-
-La secuencia de pasos necesarios para enviar/procesar la petición PUT es:
-
-* Un cliente realiza una petición HTTP PUT a la URI _http://restfuljava.com/alumnos/Esther_, incluyendo la nueva definición XML.
-* El servidor web recibe la petición y delega en el _framework_ REST para que la gestione; nuestro código dentro del _framework_ ejecuta los comandos adecuados para actualizar la representación de _Esther_.
-* Una vez que se ha completado la actualización, se envía una respuesta al cliente. Si el recurso que hemos enviado no existía previamente, se devolverá el código 201 (`Created`). En caso de que ya existiese, se podría devolver 200 (`Ok`) con el recurso actualizado como contenido, o simplemente 204 (`No Content`) para indicar que la operación se ha realizado correctamente sin devolver ningún contenido.
-
-Muchas veces se confunden los métodos PUT y POST. El significado de estos métodos es el siguiente:
-
-
-* *POST*: Publica datos en un determinado recurso. El recurso debe existir previamente y los datos enviados son añadidos a él. Por ejemplo, para añadir nuevos alumnos con POST hemos visto que debíamos hacerlo con el recurso lista de alumnos (`/alumnos`), ya que la URI del nuevo alumno todavía no existe. La operación *no es idempotente*, es decir, si añadimos varias veces el mismo alumno aparecerá repetido en nuestra lista de alumnos con URIs distintas.
-* *PUT*: Hace que el recurso indicado tome como contenido los datos enviados. El recurso podría no existir previamente, y en caso de que existiese sería sobrescrito con la nueva información. A diferencia de POST, PUT *es idempotente*. Múltiples llamadas idénticas a la misma acción PUT siempre dejarán el recurso en el mismo estado. La acción se realiza sobre la URI concreta que queremos establecer (por ejemplo, `/alumnos/Esther`), de forma que varias llamadas consecutivas con los mismos datos tendrán el mismo efecto que realizar sólo una de ellas.
-
-Podríamos añadir nuevos alumnos de dos formas diferentes. La primera de ellas es haciendo POST sobre el recurso que contiene la lista de alumnos:
-
-```plain
-POST /alumnos 
-```
-
-También podríamos hacer PUT sobre el recurso de un alumno concreto:
-
-```plain
-PUT /alumnos/Esther 
-```
-
-Si _Esther_ existía ya, sobrescribirá sus datos, en casa contrario, creará el nuevo recurso.
-
-Si utilizamos POST de esta última forma, sobre un recurso concreto, si el recurso existiese podríamos realizar alguna operación que modifique sus datos, pero si no existiese nos daría un error, ya que no podemos hacer POST sobre un recurso inexistente.
-
-```plain
-POST /alumnos/Esther
-```
-
-El caso anterior sólo será correcto si _Esther_ existe, en caso contrario obtendremos un error. Para crear nuevos recursos con POST debemos recurrir al recurso del conjunto de alumnos. Una diferencia entre estas dos formas alternativas de crear nuevos recursos es que con PUT podemos indicar explícitamente el identificador del recurso creado, mientras que con POST será el servidor quien lo decida.
-
-
-
-
-
-<!-- ************************************************************************-->
-## DELETE/DELETE
-
-El método DELETE se utiliza para *BORRAR* representaciones. Para nuestro ejemplo, usaremos la misma URI de las secciones anteriores.
-
-La secuencia de pasos necesarios para enviar/procesar la petición DELETE es:
-
-* Un cliente realiza una petición DELETE a la URI _http://restfuljava.com/alumnos/Esther_
-* El servidor web recibe la petición y delega en el _framework_ REST para que la gestione; nuestro código dentro del _framework_ ejecuta los comandos adecuados para borrar la representación de _Esther_.
-* Una vez que se ha completado la actualización, se envía una respuesta al cliente. Se podría devolver 200 (`Ok`) con el recurso borrado como contenido, o simplemente 204 (`No Content`) para indicar que la operación se ha realizado correctamente sin devolver ningún contenido.
-
-Hasta aquí hemos visto las principales acciones que podemos realizar con los recursos en un servicio web RESTful. No conocemos cómo el servicio web implementa el almacenamiento de los datos, y no conocemos qué tecnologías se utilizan para implementar el servicio. Todo lo que conocemos es que nuestro cliente y servidor se comunican a través de HTTP, que usamos dicho protocolo de comunicaciones para enviar peticiones, y que nuestras representaciones de los recursos se intercambian entre el cliente y el servidor a través del intercambio de URIs.
-
-
-
-
-<!-- ************************************************************************-->
-# Aclaraciones
-
-* Cuando utilizamos el término REST nos referimos a la arquitectura y por RESTful a un servicio que implementa dicha arquitectura. 
-
-* En los ejemplos se ha utilizado como representación de un recurso la notación XML sin embargo se puede utilizar cualquier tipo de notación, siendo JSON la más utilizada actualmente para los servicios web. 
-
-* No es necesario implementar siempre todos los tipos de peticiones. Esto dependerá de las acciones que queramos permitir que se realicen con un determinado recurso. 
-
-* Como respuesta a una petición a uno de estos servicios se tiene que devolver un código en la cabecera indicando si la petición se ha realizado correctamente o no. Mediante este código se puede indicar el tipo de error o información adicional sobre la acción realizada. 
-
-* Los código indicados para indicar que una operación se ha realizado correctamente o que ha habido un error y el tipo de error dependerán del servicio en cuestión. 
-
-* Tras crear una petición con una petición tipo POST se suele añadir a la cabecera la URI del nuevo recurso creado, por ejemplo: `Location: http://restfuljava.com/alumnos/Ricardo`.
-
-* Como respuesta a las peticiones tipo POST, PUT y DELETE, además de devolver el códico de respuesta se puede incluir informacin adicional. Esto dependerá de la API en custión, y puede ser interesante para por ejemplo añadir el mensaje de error traducidoo o alguna otra información necesaria. 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Cuando hayas terminado de implementar estos métodos, descarga la imagen del icono que se encuentra en el campo `icon` de la respuesta para mostrarlo en el `UIImageView`, dentro del método `updateView`. Ejemplo de la URL correspondiente al icono `10d`: http://openweathermap.org/img/w/10d.png.
